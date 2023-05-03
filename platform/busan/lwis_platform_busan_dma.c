@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Google LWIS GS201 Platform-Specific DMA Functions
+ * Google LWIS Busan Platform-Specific DMA Functions
  *
  * Copyright (c) 2021 Google, LLC
  */
@@ -34,8 +34,8 @@ struct dma_buf *lwis_platform_dma_buffer_alloc(size_t len, unsigned int flags)
 
 	dmabuf = dma_heap_buffer_alloc(heap, len, O_RDWR, 0);
 	if (IS_ERR_OR_NULL(dmabuf)) {
-		pr_err("DMA-BUF heap failed to alloc %#zx bytes. Error code %lu\n",
-		       len, PTR_ERR(dmabuf));
+		pr_err("DMA-BUF heap failed to alloc %#zx bytes. Error code %lu\n", len,
+		       PTR_ERR(dmabuf));
 		dmabuf = NULL;
 	}
 

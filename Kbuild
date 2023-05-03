@@ -3,6 +3,7 @@ lwis-objs += lwis_device_dpm.o
 lwis-objs += lwis_device_i2c.o
 lwis-objs += lwis_device_ioreg.o
 lwis-objs += lwis_device_slc.o
+lwis-objs += lwis_device_test.o
 lwis-objs += lwis_device_top.o
 lwis-objs += lwis_clock.o
 lwis-objs += lwis_gpio.o
@@ -19,17 +20,26 @@ lwis-objs += lwis_event.o
 lwis-objs += lwis_buffer.o
 lwis-objs += lwis_util.o
 lwis-objs += lwis_debug.o
+lwis-objs += lwis_io_entry.o
+lwis-objs += lwis_allocator.o
+lwis-objs += lwis_version.o
+lwis-objs += lwis_cmd.o
 
-# GS101 specific files
+# Anchorage specific files
 ifeq ($(CONFIG_SOC_GS101), y)
-lwis-objs += platform/gs101/lwis_platform_gs101.o
-lwis-objs += platform/gs101/lwis_platform_gs101_dma.o
+lwis-objs += platform/anchorage/lwis_platform_anchorage.o
+lwis-objs += platform/anchorage/lwis_platform_anchorage_dma.o
 endif
 
-# GS201 specific files
+# Busan specific files
 ifeq ($(CONFIG_SOC_GS201), y)
-lwis-objs += platform/gs201/lwis_platform_gs201.o
-lwis-objs += platform/gs201/lwis_platform_gs201_dma.o
+lwis-objs += platform/busan/lwis_platform_busan.o
+lwis-objs += platform/busan/lwis_platform_busan_dma.o
+# ccflags-y += -DLWIS_FENCE_ENABLED -DLWIS_BTS_BLOCK_NAME_ENABLED
+endif
+
+ifneq ($(filter -DLWIS_FENCE_ENABLED, $(ccflags-y)),)
+lwis-objs += lwis_fence.o
 endif
 
 # Device tree specific file
@@ -39,4 +49,4 @@ endif
 
 obj-$(CONFIG_LWIS) += lwis.o
 
-ccflags-y = -I$(abspath $(KERNEL_SRC)/$(M)) -I$(abspath $(KBUILD_SRC)/drivers/soc/google)
+ccflags-y += -I$(abspath $(KERNEL_SRC)/$(M)) -I$(abspath $(KBUILD_SRC)/drivers/soc/google)

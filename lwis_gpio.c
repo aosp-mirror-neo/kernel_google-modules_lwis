@@ -14,6 +14,7 @@
 #include <linux/kernel.h>
 
 #include "lwis_gpio.h"
+#include "lwis_interrupt.h"
 
 /* debug function */
 void lwis_gpio_list_print(char *name, struct gpio_descs *gpios)
@@ -134,6 +135,9 @@ void lwis_gpios_list_free(struct lwis_gpios_list *list)
 		return;
 	}
 
+	if (list->gpios_info->irq_list) {
+		lwis_interrupt_list_free(list->gpios_info->irq_list);
+	}
 	if (list->gpios_info) {
 		kfree(list->gpios_info);
 	}

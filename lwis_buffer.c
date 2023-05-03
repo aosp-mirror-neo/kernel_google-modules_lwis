@@ -53,6 +53,35 @@ enrollment_list_find_or_create(struct lwis_client *client, dma_addr_t dma_vaddr)
 	return (list == NULL) ? enrollment_list_create(client, dma_vaddr) : list;
 }
 
+static void dump_total_enrolled_buffer_size(struct lwis_device *lwis_dev)
+{
+	struct lwis_client *client;
+	unsigned long flags;
+	int i;
+	struct lwis_buffer_enrollment_list *enrollment_list;
+	struct lwis_enrolled_buffer *buffer;
+	size_t total_enrolled_size = 0;
+	int num_enrolled_buffers = 0;
+
+	spin_lock_irqsave(&lwis_dev->lock, flags);
+	list_for_each_entry (client, &lwis_dev->clients, node) {
+		if (hash_empty(client->enrolled_buffers)) {
+			continue;
+		}
+		hash_for_each (client->enrolled_buffers, i, enrollment_list, node) {
+			buffer = list_first_entry(&enrollment_list->list,
+						  struct lwis_enrolled_buffer, list_node);
+			total_enrolled_size += buffer->dma_buf->size;
+			num_enrolled_buffers++;
+		}
+	}
+	spin_unlock_irqrestore(&lwis_dev->lock, flags);
+	if (total_enrolled_size > 0) {
+		pr_info("%-16s: %16d %16lu kB\n", lwis_dev->name, num_enrolled_buffers,
+			total_enrolled_size / 1024);
+	}
+}
+
 int lwis_buffer_alloc(struct lwis_client *lwis_client, struct lwis_alloc_buffer_info *alloc_info,
 		      struct lwis_allocated_buffer *buffer)
 {
@@ -87,6 +116,15 @@ int lwis_buffer_alloc(struct lwis_client *lwis_client, struct lwis_alloc_buffer_
 			return -ENOMEM;
 		}
 
+		/*
+		 * Increment refcount of the fd to 1 first before dma_buf_fd()
+		 * which is increment refcount of the fd to 2.
+		 * Both userspace's close(fd) and kernel's lwis_buffer_free()
+		 * will decrement the refcount by 1. Whoever reaches 0 refcount
+		 * frees the buffer.
+		 */
+		get_dma_buf(dma_buf);
+
 		alloc_info->dma_fd = dma_buf_fd(dma_buf, O_CLOEXEC);
 		if (alloc_info->dma_fd < 0) {
 			pr_err("dma_buf_fd failed (%d)\n", alloc_info->dma_fd);
@@ -95,13 +133,6 @@ int lwis_buffer_alloc(struct lwis_client *lwis_client, struct lwis_alloc_buffer_
 		}
 
 		alloc_info->partition_id = PT_PTID_INVALID;
-
-		/*
-		 * Increment refcount of the fd to 2. Both userspace's close(fd)
-		 * and kernel's lwis_buffer_free() will decrement the refcount
-		 * by 1. Whoever reaches 0 refcount frees the buffer.
-		 */
-		get_dma_buf(dma_buf);
 	}
 
 	buffer->fd = alloc_info->dma_fd;
@@ -191,6 +222,10 @@ int lwis_buffer_enroll(struct lwis_client *lwis_client, struct lwis_enrolled_buf
 		dev_err(lwis_client->lwis_dev->dev,
 			"Could not map dma attachment for fd: %d (errno: %ld)", buffer->info.fd,
 			PTR_ERR(buffer->sg_table));
+		if (PTR_ERR(buffer->sg_table) == -ENOMEM) {
+			lwis_device_info_dump("Enroll buffer sizes",
+					      dump_total_enrolled_buffer_size);
+		}
 		dma_buf_detach(buffer->dma_buf, buffer->dma_buf_attachment);
 		dma_buf_put(buffer->dma_buf);
 		return PTR_ERR(buffer->sg_table);
@@ -284,6 +319,46 @@ struct lwis_enrolled_buffer *lwis_client_enrolled_buffer_find(struct lwis_client
 	}
 
 	return NULL;
+}
+
+int lwis_buffer_cpu_access(struct lwis_client *lwis_client, struct lwis_buffer_cpu_access_op *op)
+{
+	struct dma_buf *dma_buf;
+	enum dma_data_direction dma_direction;
+	int ret = 0;
+
+	if (!lwis_client) {
+		pr_err("BufferCpuAccess: LWIS client is NULL\n");
+		return -ENODEV;
+	}
+
+	if (op->read && op->write) {
+		dma_direction = DMA_BIDIRECTIONAL;
+	} else if (op->read) {
+		dma_direction = DMA_FROM_DEVICE;
+	} else if (op->write) {
+		dma_direction = DMA_TO_DEVICE;
+	} else {
+		dma_direction = DMA_NONE;
+	}
+	if (!valid_dma_direction(dma_direction)) {
+		dev_err(lwis_client->lwis_dev->dev, "BufferCpuAccess: dma_direction is invalid\n");
+		return -EINVAL;
+	}
+
+	dma_buf = dma_buf_get(op->fd);
+	if (IS_ERR_OR_NULL(dma_buf)) {
+		pr_err("Could not get dma buffer for fd: %d", op->fd);
+		return -EINVAL;
+	}
+
+	if (op->start) {
+		ret = dma_buf_begin_cpu_access_partial(dma_buf, dma_direction, op->offset, op->len);
+	} else {
+		ret = dma_buf_end_cpu_access_partial(dma_buf, dma_direction, op->offset, op->len);
+	}
+	dma_buf_put(dma_buf);
+	return ret;
 }
 
 int lwis_client_enrolled_buffers_clear(struct lwis_client *lwis_client)

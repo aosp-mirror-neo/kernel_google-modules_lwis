@@ -1,14 +1,11 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Google LWIS GS101 Platform-Specific Functions
+ * Google LWIS Busan Platform-Specific Functions
  *
- * Copyright (c) 2020 Google, LLC
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * Copyright (c) 2021 Google, LLC
  */
 
-#include "lwis_platform_gs101.h"
+#include "lwis_platform_busan.h"
 
 #include <linux/iommu.h>
 #include <linux/of.h>
@@ -58,17 +55,31 @@ int lwis_platform_probe(struct lwis_device *lwis_dev)
 
 static int lwis_iommu_fault_handler(struct iommu_fault *fault, void *param)
 {
+	int ret;
+	struct of_phandle_iterator it;
 	struct lwis_device *lwis_dev = (struct lwis_device *)param;
 	struct lwis_mem_page_fault_event_payload event_payload;
 
 	pr_err("############ LWIS IOMMU PAGE FAULT ############\n");
 	pr_err("\n");
-	pr_err("Device: %s IOMMU Page Fault at Address: 0x%px Flag: 0x%08x\n", lwis_dev->name,
+	of_for_each_phandle (&it, ret, lwis_dev->plat_dev->dev.of_node, "iommus", 0, 0) {
+		u64 iommus_reg;
+		const char *port_name = NULL;
+		struct device_node *iommus_info = of_node_get(it.node);
+		of_property_read_u64(iommus_info, "reg", &iommus_reg);
+		of_property_read_string(iommus_info, "port-name", &port_name);
+		pr_info("Device [%s] registered IOMMUS :[%s] %#010llx.sysmmu\n", lwis_dev->name,
+			port_name, iommus_reg);
+		pr_err("\n");
+	}
+	pr_err("IOMMU Page Fault at Address: 0x%px Flag: 0x%08x. Check dmesg for sysmmu errors\n",
 	       (void *)fault->event.addr, fault->event.flags);
 	pr_err("\n");
 	lwis_debug_print_transaction_info(lwis_dev);
 	pr_err("\n");
-	lwis_debug_print_event_states_info(lwis_dev);
+	lwis_debug_print_register_io_history(lwis_dev);
+	pr_err("\n");
+	lwis_debug_print_event_states_info(lwis_dev, /*lwis_event_dump_cnt=*/-1);
 	pr_err("\n");
 	lwis_debug_print_buffer_info(lwis_dev);
 	pr_err("\n");
@@ -89,6 +100,7 @@ static int lwis_iommu_fault_handler(struct iommu_fault *fault, void *param)
 int lwis_platform_device_enable(struct lwis_device *lwis_dev)
 {
 	int ret;
+	int iommus_len = 0;
 	struct lwis_platform *platform;
 
 	const int core_clock_qos = 67000;
@@ -110,7 +122,8 @@ int lwis_platform_device_enable(struct lwis_device *lwis_dev)
 		return ret;
 	}
 
-	if (lwis_dev->has_iommu) {
+	if (of_find_property(lwis_dev->plat_dev->dev.of_node, "iommus", &iommus_len) &&
+	    iommus_len) {
 		/* Activate IOMMU for the platform device */
 		ret = iommu_register_device_fault_handler(&lwis_dev->plat_dev->dev,
 							  lwis_iommu_fault_handler, lwis_dev);
@@ -120,17 +133,6 @@ int lwis_platform_device_enable(struct lwis_device *lwis_dev)
 		}
 	}
 
-	/*
-	 * PM_QOS_CPU_ONLINE_MIN is not defined in 5.4 branch, will need to
-	 * revisit and see if a replacement is needed.
-	 */
-#if 0
-	/* Set hardcoded DVFS levels */
-	if (!exynos_pm_qos_request_active(&platform->pm_qos_hpg)) {
-		exynos_pm_qos_add_request(&platform->pm_qos_hpg,
-					  PM_QOS_CPU_ONLINE_MIN, hpg_qos);
-	}
-#endif
 	if (lwis_dev->clock_family != CLOCK_FAMILY_INVALID &&
 	    lwis_dev->clock_family < NUM_CLOCK_FAMILY) {
 		ret = lwis_platform_update_qos(lwis_dev, core_clock_qos, lwis_dev->clock_family);
@@ -149,7 +151,7 @@ int lwis_platform_device_enable(struct lwis_device *lwis_dev)
 		}
 	}
 
-	if (lwis_dev->bts_scenario_name) {
+	if (lwis_dev->bts_index != BTS_UNSUPPORTED && lwis_dev->bts_scenario_name) {
 		lwis_dev->bts_scenario = bts_get_scenindex(lwis_dev->bts_scenario_name);
 		if (!lwis_dev->bts_scenario) {
 			dev_err(lwis_dev->dev, "Failed to get default camera BTS scenario.\n");
@@ -162,6 +164,7 @@ int lwis_platform_device_enable(struct lwis_device *lwis_dev)
 
 int lwis_platform_device_disable(struct lwis_device *lwis_dev)
 {
+	int iommus_len = 0;
 	struct lwis_platform *platform;
 
 	if (!lwis_dev) {
@@ -173,7 +176,7 @@ int lwis_platform_device_disable(struct lwis_device *lwis_dev)
 		return -ENODEV;
 	}
 
-	if (lwis_dev->bts_scenario_name) {
+	if (lwis_dev->bts_index != BTS_UNSUPPORTED && lwis_dev->bts_scenario_name) {
 		bts_del_scenario(lwis_dev->bts_scenario);
 	}
 
@@ -182,7 +185,8 @@ int lwis_platform_device_disable(struct lwis_device *lwis_dev)
 
 	lwis_platform_remove_qos(lwis_dev);
 
-	if (lwis_dev->has_iommu) {
+	if (of_find_property(lwis_dev->plat_dev->dev.of_node, "iommus", &iommus_len) &&
+	    iommus_len) {
 		/* Deactivate IOMMU */
 		iommu_unregister_device_fault_handler(&lwis_dev->plat_dev->dev);
 	}
@@ -191,8 +195,7 @@ int lwis_platform_device_disable(struct lwis_device *lwis_dev)
 	return pm_runtime_put_sync(&lwis_dev->plat_dev->dev);
 }
 
-int lwis_platform_update_qos(struct lwis_device *lwis_dev, int value,
-			     int32_t clock_family)
+int lwis_platform_update_qos(struct lwis_device *lwis_dev, int value, int32_t clock_family)
 {
 	struct lwis_platform *platform;
 	struct exynos_pm_qos_request *qos_req;
@@ -217,10 +220,8 @@ int lwis_platform_update_qos(struct lwis_device *lwis_dev, int value,
 		qos_class = PM_QOS_CAM_THROUGHPUT;
 		break;
 	case CLOCK_FAMILY_TNR:
-#if defined(CONFIG_SOC_GS101)
 		qos_req = &platform->pm_qos_tnr;
 		qos_class = PM_QOS_TNR_THROUGHPUT;
-#endif
 		break;
 	case CLOCK_FAMILY_MIF:
 		qos_req = &platform->pm_qos_mem;
@@ -268,30 +269,19 @@ int lwis_platform_remove_qos(struct lwis_device *lwis_dev)
 		exynos_pm_qos_remove_request(&platform->pm_qos_mem);
 	}
 
-	/*
-	 * pm_qos_hpg is not being used, see comments above regarding
-	 * PM_QOS_CPU_ONLINE_MIN
-	 */
-#if 0
-	if (exynos_pm_qos_request_active(&platform->pm_qos_hpg)) {
-		exynos_pm_qos_remove_request(&platform->pm_qos_hpg);
-	}
-#endif
 	if (exynos_pm_qos_request_active(&platform->pm_qos_int_cam)) {
 		exynos_pm_qos_remove_request(&platform->pm_qos_int_cam);
 	}
 	if (exynos_pm_qos_request_active(&platform->pm_qos_cam)) {
 		exynos_pm_qos_remove_request(&platform->pm_qos_cam);
 	}
-#if defined(CONFIG_SOC_GS101)
 	if (exynos_pm_qos_request_active(&platform->pm_qos_tnr)) {
 		exynos_pm_qos_remove_request(&platform->pm_qos_tnr);
 	}
-#endif
 	return 0;
 }
 
-int lwis_platform_update_bts(struct lwis_device *lwis_dev, unsigned int bw_kb_peak,
+int lwis_platform_update_bts(struct lwis_device *lwis_dev, int block, unsigned int bw_kb_peak,
 			     unsigned int bw_kb_read, unsigned int bw_kb_write,
 			     unsigned int bw_kb_rt)
 {

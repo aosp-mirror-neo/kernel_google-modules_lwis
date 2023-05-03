@@ -17,6 +17,7 @@
 
 #include "lwis_device.h"
 #include "lwis_ioreg.h"
+#include "lwis_util.h"
 
 static int find_block_idx_by_name(struct lwis_ioreg_list *list, char *name)
 {
@@ -89,7 +90,10 @@ int lwis_ioreg_list_alloc(struct lwis_ioreg_device *ioreg_dev, int num_blocks)
 {
 	struct lwis_ioreg_list *list;
 
-	BUG_ON(!ioreg_dev);
+	if (!ioreg_dev) {
+		pr_err("LWIS IOREG device is NULL\n");
+		return -ENODEV;
+	}
 
 	/* No need to allocate if num_blocks is invalid */
 	if (num_blocks <= 0) {
@@ -111,7 +115,10 @@ void lwis_ioreg_list_free(struct lwis_ioreg_device *ioreg_dev)
 {
 	struct lwis_ioreg_list *list;
 
-	BUG_ON(!ioreg_dev);
+	if (!ioreg_dev) {
+		pr_err("LWIS IOREG device is NULL\n");
+		return;
+	}
 
 	list = &ioreg_dev->reg_list;
 	if (list->block) {
@@ -128,7 +135,10 @@ int lwis_ioreg_get(struct lwis_ioreg_device *ioreg_dev, int index, char *name)
 	struct lwis_ioreg_list *list;
 	struct platform_device *plat_dev;
 
-	BUG_ON(!ioreg_dev);
+	if (!ioreg_dev) {
+		pr_err("LWIS IOREG device is NULL\n");
+		return -ENODEV;
+	}
 
 	plat_dev = ioreg_dev->base_dev.plat_dev;
 	list = &ioreg_dev->reg_list;
@@ -160,7 +170,10 @@ int lwis_ioreg_put_by_idx(struct lwis_ioreg_device *ioreg_dev, int index)
 	struct lwis_ioreg_list *list;
 	struct device *dev;
 
-	BUG_ON(!ioreg_dev);
+	if (!ioreg_dev) {
+		pr_err("LWIS IOREG device is NULL\n");
+		return -ENODEV;
+	};
 
 	dev = &ioreg_dev->base_dev.plat_dev->dev;
 	list = &ioreg_dev->reg_list;
@@ -183,7 +196,10 @@ int lwis_ioreg_put_by_name(struct lwis_ioreg_device *ioreg_dev, char *name)
 	struct lwis_ioreg_list *list;
 	struct device *dev;
 
-	BUG_ON(!ioreg_dev);
+	if (!ioreg_dev) {
+		pr_err("LWIS IOREG device is NULL\n");
+		return -ENODEV;
+	};
 
 	dev = &ioreg_dev->base_dev.plat_dev->dev;
 	list = &ioreg_dev->reg_list;
@@ -240,7 +256,7 @@ static int ioreg_read_batch_internal(void __iomem *base, uint64_t offset, int va
 }
 
 static int ioreg_write_batch_internal(void __iomem *base, uint64_t offset, int value_bits,
-				      size_t size_in_bytes, uint8_t *buf)
+				      size_t size_in_bytes, uint8_t *buf, bool is_offset_fixed)
 {
 	int i;
 	uint8_t *addr = (uint8_t *)base + offset;
@@ -254,22 +270,29 @@ static int ioreg_write_batch_internal(void __iomem *base, uint64_t offset, int v
 	switch (value_bits) {
 	case 8:
 		for (i = 0; i < size_in_bytes; ++i) {
-			writeb_relaxed(*(buf + i), (void __iomem *)(addr + i));
+			writeb_relaxed(*(buf + i), is_offset_fixed ? (void __iomem *)(addr) :
+									   (void __iomem *)(addr + i));
 		}
 		break;
 	case 16:
 		for (i = 0; i < size_in_bytes; i += 2) {
-			writew_relaxed(*(uint16_t *)(buf + i), (void __iomem *)(addr + i));
+			writew_relaxed(*(uint16_t *)(buf + i), is_offset_fixed ?
+								       (void __iomem *)(addr) :
+									     (void __iomem *)(addr + i));
 		}
 		break;
 	case 32:
 		for (i = 0; i < size_in_bytes; i += 4) {
-			writel_relaxed(*(uint32_t *)(buf + i), (void __iomem *)(addr + i));
+			writel_relaxed(*(uint32_t *)(buf + i), is_offset_fixed ?
+								       (void __iomem *)(addr) :
+									     (void __iomem *)(addr + i));
 		}
 		break;
 	case 64:
 		for (i = 0; i < size_in_bytes; i += 8) {
-			writeq_relaxed(*(uint64_t *)(buf + i), (void __iomem *)(addr + i));
+			writeq_relaxed(*(uint64_t *)(buf + i), is_offset_fixed ?
+								       (void __iomem *)(addr) :
+									     (void __iomem *)(addr + i));
 		}
 		break;
 	default:
@@ -333,11 +356,19 @@ int lwis_ioreg_io_entry_rw(struct lwis_ioreg_device *ioreg_dev, struct lwis_io_e
 	int index;
 	struct lwis_ioreg *block;
 	uint64_t reg_value;
+	unsigned long flags;
 
-	BUG_ON(!ioreg_dev);
-	BUG_ON(!entry);
+	if (!ioreg_dev) {
+		pr_err("LWIS IOREG device is NULL\n");
+		return -ENODEV;
+	};
 
-	/* Non-blocking because we already locked here */
+	if (!entry) {
+		dev_err(ioreg_dev->base_dev.dev, "IO entry is NULL.\n");
+		return -EINVAL;
+	}
+
+	spin_lock_irqsave(&ioreg_dev->base_dev.lock, flags);
 	if (entry->type == LWIS_IO_ENTRY_READ) {
 		ret = lwis_ioreg_read(ioreg_dev, entry->rw.bid, entry->rw.offset, &entry->rw.val,
 				      access_size);
@@ -350,6 +381,7 @@ int lwis_ioreg_io_entry_rw(struct lwis_ioreg_device *ioreg_dev, struct lwis_io_e
 		index = entry->rw_batch.bid;
 		block = get_block_by_idx(ioreg_dev, index);
 		if (IS_ERR_OR_NULL(block)) {
+			spin_unlock_irqrestore(&ioreg_dev->base_dev.lock, flags);
 			return PTR_ERR(block);
 		}
 
@@ -360,6 +392,7 @@ int lwis_ioreg_io_entry_rw(struct lwis_ioreg_device *ioreg_dev, struct lwis_io_e
 			dev_err(ioreg_dev->base_dev.dev,
 				"ioreg validate_offset failed at: Offset: 0x%llx\n",
 				entry->rw_batch.offset);
+			spin_unlock_irqrestore(&ioreg_dev->base_dev.lock, flags);
 			return ret;
 		}
 
@@ -380,9 +413,16 @@ int lwis_ioreg_io_entry_rw(struct lwis_ioreg_device *ioreg_dev, struct lwis_io_e
 				entry->rw.offset);
 		}
 	} else if (entry->type == LWIS_IO_ENTRY_WRITE_BATCH) {
+		if (ioreg_dev->base_dev.is_read_only) {
+			dev_err(ioreg_dev->base_dev.dev, "Device is read only\n");
+			spin_unlock_irqrestore(&ioreg_dev->base_dev.lock, flags);
+			return -EPERM;
+		}
+
 		index = entry->rw_batch.bid;
 		block = get_block_by_idx(ioreg_dev, index);
 		if (IS_ERR_OR_NULL(block)) {
+			spin_unlock_irqrestore(&ioreg_dev->base_dev.lock, flags);
 			return PTR_ERR(block);
 		}
 
@@ -393,12 +433,13 @@ int lwis_ioreg_io_entry_rw(struct lwis_ioreg_device *ioreg_dev, struct lwis_io_e
 			dev_err(ioreg_dev->base_dev.dev,
 				"ioreg validate_offset failed at: Offset: 0x%llx\n",
 				entry->rw_batch.offset);
+			spin_unlock_irqrestore(&ioreg_dev->base_dev.lock, flags);
 			return ret;
 		}
 		ret = ioreg_write_batch_internal(block->base, entry->rw_batch.offset,
 						 ioreg_dev->base_dev.native_value_bitwidth,
-						 entry->rw_batch.size_in_bytes,
-						 entry->rw_batch.buf);
+						 entry->rw_batch.size_in_bytes, entry->rw_batch.buf,
+						 entry->rw_batch.is_offset_fixed);
 		if (ret) {
 			dev_err(ioreg_dev->base_dev.dev, "Invalid ioreg batch write at:\n");
 			dev_err(ioreg_dev->base_dev.dev, "Offset: 0x%08llx, Base: %pK\n",
@@ -411,6 +452,7 @@ int lwis_ioreg_io_entry_rw(struct lwis_ioreg_device *ioreg_dev, struct lwis_io_e
 			dev_err(ioreg_dev->base_dev.dev,
 				"ioreg modify read failed at: Bid: %d, Offset: 0x%llx\n",
 				entry->mod.bid, entry->mod.offset);
+			spin_unlock_irqrestore(&ioreg_dev->base_dev.lock, flags);
 			return ret;
 		}
 		reg_value &= ~entry->mod.val_mask;
@@ -424,8 +466,10 @@ int lwis_ioreg_io_entry_rw(struct lwis_ioreg_device *ioreg_dev, struct lwis_io_e
 		}
 	} else {
 		dev_err(ioreg_dev->base_dev.dev, "Invalid IO entry type: %d\n", entry->type);
+		spin_unlock_irqrestore(&ioreg_dev->base_dev.lock, flags);
 		return -EINVAL;
 	}
+	spin_unlock_irqrestore(&ioreg_dev->base_dev.lock, flags);
 
 	return ret;
 }
@@ -439,7 +483,10 @@ int lwis_ioreg_read(struct lwis_ioreg_device *ioreg_dev, int index, uint64_t off
 	unsigned int native_value_bitwidth;
 	uint64_t offset_mask;
 
-	BUG_ON(!ioreg_dev);
+	if (!ioreg_dev) {
+		pr_err("LWIS IOREG device is NULL\n");
+		return -ENODEV;
+	};
 
 	block = get_block_by_idx(ioreg_dev, index);
 	if (IS_ERR_OR_NULL(block)) {
@@ -488,7 +535,15 @@ int lwis_ioreg_write(struct lwis_ioreg_device *ioreg_dev, int index, uint64_t of
 	uint64_t offset_mask;
 	uint64_t value_mask;
 
-	BUG_ON(!ioreg_dev);
+	if (!ioreg_dev) {
+		pr_err("LWIS IOREG device is NULL\n");
+		return -ENODEV;
+	};
+
+	if (ioreg_dev->base_dev.is_read_only) {
+		dev_err(ioreg_dev->base_dev.dev, "Device is read only\n");
+		return -EPERM;
+	}
 
 	block = get_block_by_idx(ioreg_dev, index);
 	if (IS_ERR_OR_NULL(block)) {

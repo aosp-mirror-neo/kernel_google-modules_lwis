@@ -13,16 +13,20 @@
 
 #include <linux/gpio/consumer.h>
 #include "lwis_commands.h"
+#include "lwis_interrupt.h"
 
 /*
  * struct lwis_gpios_info
  * This structure is to store the gpios information
  */
 struct lwis_gpios_info {
+	int id;
+	struct device *hold_dev;
 	char name[LWIS_MAX_NAME_STRING_LEN];
 	bool is_shared;
 	bool is_pulse;
 	struct gpio_descs *gpios;
+	struct lwis_interrupt_list *irq_list;
 };
 
 /*
