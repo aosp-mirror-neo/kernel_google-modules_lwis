@@ -47,6 +47,19 @@
 #define BTS_UNSUPPORTED -1
 #define MAX_UNIFIED_POWER_DEVICE 8
 
+/* enum lwis_client_flush_state
+ * Client flush states indicate if the client has been issued a
+ * flush on the transaction worker threads.
+ * Client will move to FLUSHING state only when a direct call to
+ * lwis_transaction_client_flush has been made.
+ * Once the flush is complete, the client will transition back
+ * to NOT_FLUSHING state.
+ */
+enum lwis_client_flush_state {
+	NOT_FLUSHING = 0,
+	FLUSHING
+};
+
 /* Forward declaration for lwis_device. This is needed for the declaration for
    lwis_device_subclass_operations data struct. */
 struct lwis_device;
@@ -254,17 +267,12 @@ struct lwis_device {
 
 	/* clock family this device belongs to */
 	int clock_family;
-#ifdef LWIS_BTS_BLOCK_NAME_ENABLED
 	/* number of BTS blocks */
 	int bts_block_num;
 	/* BTS block names*/
 	const char *bts_block_names[MAX_BTS_BLOCK_NUM];
 	/* indexes to bandwidth traffic shaper */
 	int bts_indexes[MAX_BTS_BLOCK_NUM];
-#else
-	/* index to bandwidth traffic shaper */
-	int bts_index;
-#endif
 	/* BTS scenario name */
 	const char *bts_scenario_name;
 	/* BTS scenario index */
@@ -299,6 +307,8 @@ struct lwis_device {
 	/* Worker thread */
 	struct kthread_worker transaction_worker;
 	struct task_struct *transaction_worker_thread;
+	/* Limit on number of transactions to be processed at a time */
+	int transaction_process_limit;
 };
 
 /*
@@ -350,6 +360,14 @@ struct lwis_client {
 	struct list_head node;
 	/* Mark if the client called device enable */
 	bool is_enabled;
+	/* Work item to schedule I2C transfers */
+	struct kthread_work i2c_work;
+	/* Indicates if the client has been issued a flush worker call */
+	enum lwis_client_flush_state flush_state;
+	/* Lock to guard client's flush state changes */
+	spinlock_t flush_lock;
+	/* Lock to guard client's buffer changes */
+	spinlock_t buffer_lock;
 };
 
 /*
@@ -420,18 +438,11 @@ void lwis_dev_power_seq_list_print(struct lwis_device_power_sequence_list *list)
 void lwis_device_info_dump(const char *name, void (*func)(struct lwis_device *));
 
 /*
- * lwis_device_crash_info_dump:
- * Use the customized function handle to print information from each device registered in LWIS
- * when usersapce crash.
- */
-void lwis_device_crash_info_dump(struct lwis_device *lwis_dev);
-
-/*
  * lwis_save_register_io_info: Saves the register io info in a history buffer
  * for better debugability.
  */
 void lwis_save_register_io_info(struct lwis_device *lwis_dev, struct lwis_io_entry *io_entry,
-                                size_t access_size);
+				size_t access_size);
 
 /*
  * lwis_process_worker_queue:
