@@ -217,7 +217,7 @@ int lwis_buffer_enroll(struct lwis_client *lwis_client, struct lwis_enrolled_buf
 	}
 
 	buffer->sg_table =
-		dma_buf_map_attachment(buffer->dma_buf_attachment, buffer->dma_direction);
+		dma_buf_map_attachment_unlocked(buffer->dma_buf_attachment, buffer->dma_direction);
 	if (IS_ERR_OR_NULL(buffer->sg_table)) {
 		dev_err(lwis_client->lwis_dev->dev,
 			"Could not map dma attachment for fd: %d (errno: %ld)", buffer->info.fd,
@@ -261,8 +261,8 @@ int lwis_buffer_enroll(struct lwis_client *lwis_client, struct lwis_enrolled_buf
 
 	return 0;
 err:
-	dma_buf_unmap_attachment(buffer->dma_buf_attachment, buffer->sg_table,
-				 buffer->dma_direction);
+	dma_buf_unmap_attachment_unlocked(buffer->dma_buf_attachment, buffer->sg_table,
+					  buffer->dma_direction);
 	dma_buf_detach(buffer->dma_buf, buffer->dma_buf_attachment);
 	dma_buf_put(buffer->dma_buf);
 	return -EINVAL;
@@ -281,8 +281,8 @@ int lwis_buffer_disenroll(struct lwis_client *lwis_client, struct lwis_enrolled_
 
 	lwis_platform_dma_buffer_unmap(lwis_client->lwis_dev, buffer->dma_buf_attachment,
 				       buffer->info.dma_vaddr);
-	dma_buf_unmap_attachment(buffer->dma_buf_attachment, buffer->sg_table,
-				 buffer->dma_direction);
+	dma_buf_unmap_attachment_unlocked(buffer->dma_buf_attachment, buffer->sg_table,
+					  buffer->dma_direction);
 	dma_buf_detach(buffer->dma_buf, buffer->dma_buf_attachment);
 	dma_buf_put(buffer->dma_buf);
 	/* Delete the node from the hash table */
