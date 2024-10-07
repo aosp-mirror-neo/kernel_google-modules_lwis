@@ -13,6 +13,7 @@
 
 #include "lwis_dt.h"
 
+#include <linux/cleanup.h>
 #include <linux/kernel.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
@@ -265,6 +266,7 @@ static int parse_regulators(struct lwis_device *lwis_dev)
 			of_property_read_u32_index(dev_node, "regulator-voltages", i, &voltage);
 
 		ret = lwis_regulator_get(lwis_dev->regulators, (char *)name, voltage, dev);
+		of_node_put(dev_node_reg);
 		if (ret < 0) {
 			pr_err("Cannot find regulator: %s\n", name);
 			goto error_parse_reg;
@@ -1014,11 +1016,16 @@ error_parse_power_seqs:
 	return ret;
 }
 
+static void lwis_of_node_put(void *node)
+{
+	of_node_put(node);
+}
+
 static int parse_unified_power_seqs(struct lwis_device *lwis_dev)
 {
 	struct device *dev;
 	struct device_node *dev_node;
-	struct device_node *dev_node_seq;
+	struct device_node *dev_node_seq __free(device_node) = NULL;
 	int count;
 	int ret = 0;
 
@@ -1052,9 +1059,9 @@ static int parse_unified_power_seqs(struct lwis_device *lwis_dev)
 		return ret;
 	}
 
-	lwis_dev->power_seq_handler = dev_node_seq;
-
-	return ret;
+	lwis_dev->power_seq_handler = no_free_ptr(dev_node_seq);
+	return devm_add_action_or_reset(dev, lwis_of_node_put,
+					lwis_dev->power_seq_handler);
 }
 
 static int parse_pm_hibernation(struct lwis_device *lwis_dev)
@@ -1361,6 +1368,7 @@ int lwis_i2c_device_parse_dt(struct lwis_i2c_device *i2c_dev)
 	}
 
 	i2c_dev->adapter = of_find_i2c_adapter_by_node(dev_node_i2c);
+	of_node_put(dev_node_i2c);
 	if (!i2c_dev->adapter) {
 		dev_err(i2c_dev->base_dev.dev, "Cannot find i2c adapter\n");
 		return -ENODEV;
