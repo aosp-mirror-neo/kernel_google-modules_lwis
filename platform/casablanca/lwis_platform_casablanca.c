@@ -67,10 +67,9 @@ static int lwis_iommu_fault_handler(struct iommu_fault *fault, void *param)
 	of_for_each_phandle(&it, ret, lwis_dev->k_dev->of_node, "iommus", 0, 0) {
 		u64 iommus_reg;
 		const char *port_name = NULL;
-		struct device_node *iommus_info = of_node_get(it.node);
 
-		of_property_read_u64(iommus_info, "reg", &iommus_reg);
-		of_property_read_string(iommus_info, "port-name", &port_name);
+		of_property_read_u64(it.node, "reg", &iommus_reg);
+		of_property_read_string(it.node, "port-name", &port_name);
 		pr_info("Device [%s] registered IOMMUS :[%s] %#010llx.sysmmu\n", lwis_dev->name,
 			port_name, iommus_reg);
 		pr_err("\n");

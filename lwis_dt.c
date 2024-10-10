@@ -562,7 +562,7 @@ static int parse_interrupt_leaf_nodes(struct lwis_interrupt_list *list, int inde
 
 	i = 0;
 	of_for_each_phandle(&it, ret, leaf_info, "irq-leaf-nodes", 0, 0) {
-		struct device_node *irq_group_node = of_node_get(it.node);
+		struct device_node *irq_group_node = it.node;
 		int leaf_interrupts_count;
 		const char *leaf_interrupt_name;
 		int32_t *leaf_indexes = NULL;
@@ -611,6 +611,7 @@ static int parse_interrupt_leaf_nodes(struct lwis_interrupt_list *list, int inde
 
 	return 0;
 leaf_error:
+	of_node_put(it.node);
 	lwis_interrupt_free_leaves(&list->irq[index]);
 	kfree(int_reg_bits);
 	return ret;
@@ -687,7 +688,7 @@ static int parse_interrupts(struct lwis_device *lwis_dev)
 		u32 irq_reg_bitwidth = 32;
 		int32_t irq_type = REGULAR_INTERRUPT;
 		int j;
-		struct device_node *event_info = of_node_get(it.node);
+		struct device_node *event_info = it.node;
 
 		ret = of_property_read_string(event_info, "irq-reg-space", &irq_reg_space);
 		if (ret) {
@@ -797,7 +798,6 @@ static int parse_interrupts(struct lwis_device *lwis_dev)
 			}
 		}
 
-		of_node_put(event_info);
 		i++;
 	}
 
@@ -807,6 +807,7 @@ static int parse_interrupts(struct lwis_device *lwis_dev)
 
 	return 0;
 error_event_infos:
+	of_node_put(it.node);
 	/* TODO(yromanenko): lwis_interrupt_put */
 error_get_irq:
 	lwis_interrupt_list_free(lwis_dev->irqs);
