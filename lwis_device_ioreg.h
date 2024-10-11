@@ -21,7 +21,7 @@ struct lwis_ioreg {
 	phys_addr_t start;
 	int size;
 	void __iomem *base;
-	char *name;
+	const char *name;
 };
 
 struct lwis_ioreg_list {
