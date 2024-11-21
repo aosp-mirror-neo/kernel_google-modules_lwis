@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Google LWIS Misc Utility Functions and Wrappers
  *
@@ -17,7 +18,8 @@
 #include "lwis_commands.h"
 
 /* Forward declaration for lwis_device. This is needed for the function
- * prototypes below that take a pointer to lwis_device */
+ * prototypes below that take a pointer to lwis_device
+ */
 struct lwis_device;
 
 /*
@@ -84,5 +86,15 @@ int lwis_set_kthread_priority(struct lwis_device *lwis_dev, struct task_struct *
  * lwis_check_device_type: Returns true if the passed lwis_device's type is same as 'type'
  */
 bool lwis_check_device_type(struct lwis_device *lwis_dev, int32_t type);
+
+/*
+ * lwis_value_to_be_buf: transform value to big endian buffer
+ */
+void lwis_value_to_be_buf(uint64_t value, uint8_t *buf, int buf_size);
+
+/*
+ * lwis_be_buf_to_value: transform big endian buffer to value
+ */
+uint64_t lwis_be_buf_to_value(uint8_t *buf, int buf_size);
 
 #endif // LWIS_UTIL_H_

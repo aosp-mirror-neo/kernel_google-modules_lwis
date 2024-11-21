@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Google LWIS I/O Mapped Device Driver
  *
@@ -13,6 +14,7 @@
 
 #include <linux/types.h>
 
+#include "lwis_bus_manager.h"
 #include "lwis_device.h"
 
 struct lwis_ioreg {
@@ -34,7 +36,12 @@ struct lwis_ioreg_list {
 struct lwis_ioreg_device {
 	struct lwis_device base_dev;
 	struct lwis_ioreg_list reg_list;
+	struct lwis_bus_manager *ioreg_bus_manager;
+	int device_priority;
+	/* Group handle for devices that are managed together */
+	u32 device_group;
 };
 
+int lwis_ioreg_device_init(void);
 int lwis_ioreg_device_deinit(void);
 #endif /* LWIS_DEVICE_IOREG_H_ */

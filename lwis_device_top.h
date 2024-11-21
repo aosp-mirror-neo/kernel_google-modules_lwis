@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Google LWIS Top Level Device Driver
  *
@@ -14,6 +15,26 @@
 #include "lwis_device.h"
 
 #define SCRATCH_MEMORY_SIZE 16
+
+/*
+ * struct lwis_event_subscribe_operations
+ * This struct contains the 'virtual' functions for lwis_device subclasses
+ * Top device should be the only device to implement it.
+ */
+struct lwis_event_subscribe_operations {
+	/* Subscribe an event for subscriber device */
+	int (*subscribe_event)(struct lwis_device *lwis_dev, int64_t trigger_event_id,
+			       int trigger_device_id, int subscriber_device_id);
+	/* Unsubscribe an event for subscriber device */
+	int (*unsubscribe_event)(struct lwis_device *lwis_dev, int64_t trigger_event_id,
+				 int subscriber_device_id);
+	/* Notify subscriber when an event is happening */
+	void (*notify_event_subscriber)(struct lwis_device *lwis_dev, int64_t trigger_event_id,
+					int64_t trigger_event_count,
+					int64_t trigger_event_timestamp);
+	/* Clean up event subscription hash table when unloading top device */
+	void (*release)(struct lwis_device *lwis_dev);
+};
 
 /*
  *  struct lwis_top_device
@@ -35,7 +56,14 @@ struct lwis_top_device {
 	/* Subscription thread */
 	struct kthread_worker subscribe_worker;
 	struct task_struct *subscribe_worker_thread;
+	struct lwis_event_subscribe_operations subscribe_ops;
+
+	bool transaction_worker_active;
 };
 
+int lwis_top_device_init(void);
 int lwis_top_device_deinit(void);
+void lwis_start_top_device_worker(struct lwis_client *client);
+void lwis_stop_top_device_worker(struct lwis_client *client);
+
 #endif /* LWIS_DEVICE_TOP_H_ */

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Google LWIS Device Tree Parser
  *
@@ -15,6 +16,7 @@
 
 #include "lwis_device.h"
 #include "lwis_device_i2c.h"
+#include "lwis_device_spi.h"
 #include "lwis_device_ioreg.h"
 #include "lwis_device_test.h"
 #include "lwis_device_top.h"
@@ -30,6 +32,12 @@ int lwis_base_parse_dt(struct lwis_device *lwis_dev);
  *  i2c devices.
  */
 int lwis_i2c_device_parse_dt(struct lwis_i2c_device *i2c_dev);
+
+/*
+ *  lwis_spi_device_parse_dt: Parse device configurations specifically for
+ *  SPI devices.
+ */
+int lwis_spi_device_parse_dt(struct lwis_spi_device *spi_dev);
 
 /*
  *  lwis_ioreg_device_parse_dt: Parse device configurations specifically for

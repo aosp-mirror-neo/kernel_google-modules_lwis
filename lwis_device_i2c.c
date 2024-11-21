@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Google LWIS I2C Device Driver
  *
@@ -25,7 +26,6 @@
 
 #include "lwis_device.h"
 #include "lwis_i2c.h"
-#include "lwis_init.h"
 #include "lwis_periodic_io.h"
 #include "lwis_util.h"
 #include "lwis_trace.h"
@@ -57,17 +57,11 @@ static struct lwis_device_subclass_operations i2c_vops = {
 	.close = NULL,
 };
 
-static struct lwis_event_subscribe_operations i2c_subscribe_ops = {
-	.subscribe_event = NULL,
-	.unsubscribe_event = NULL,
-	.notify_event_subscriber = NULL,
-	.release = NULL,
-};
-
 static int lwis_i2c_device_enable(struct lwis_device *lwis_dev)
 {
 	int ret;
 	struct lwis_i2c_device *i2c_dev;
+
 	i2c_dev = container_of(lwis_dev, struct lwis_i2c_device, base_dev);
 
 	/* Enable the I2C bus */
@@ -97,6 +91,7 @@ static int lwis_i2c_device_disable(struct lwis_device *lwis_dev)
 {
 	int ret;
 	struct lwis_i2c_device *i2c_dev;
+
 	i2c_dev = container_of(lwis_dev, struct lwis_i2c_device, base_dev);
 
 	if (IS_ERR_OR_NULL(i2c_dev->state_pinctrl)) {
@@ -112,25 +107,25 @@ static int lwis_i2c_device_disable(struct lwis_device *lwis_dev)
 		ret = shared_i2c_set_state(&i2c_dev->client->dev, i2c_dev->state_pinctrl,
 					   I2C_OFF_STRING);
 		mutex_unlock(i2c_dev->group_i2c_lock);
-		if (ret) {
+		if (ret)
 			dev_err(lwis_dev->dev, "Error disabling i2c bus (%d)\n", ret);
-		}
+
 		return ret;
 	}
 #endif
-
+	mutex_lock(i2c_dev->group_i2c_lock);
 	if (!lwis_i2c_dev_is_in_use(lwis_dev)) {
 		/* Disable the I2C bus */
-		mutex_lock(i2c_dev->group_i2c_lock);
 		LWIS_ATRACE_FUNC_BEGIN(lwis_dev, "lwis_i2c_device_disable");
 		ret = lwis_i2c_set_state(i2c_dev, I2C_OFF_STRING);
-		mutex_unlock(i2c_dev->group_i2c_lock);
 		LWIS_ATRACE_FUNC_END(lwis_dev, "lwis_i2c_device_disable");
 		if (ret) {
 			dev_err(lwis_dev->dev, "Error disabling i2c bus (%d)\n", ret);
+			mutex_unlock(i2c_dev->group_i2c_lock);
 			return ret;
 		}
 	}
+	mutex_unlock(i2c_dev->group_i2c_lock);
 
 	return 0;
 }
@@ -139,32 +134,32 @@ static int lwis_i2c_register_io(struct lwis_device *lwis_dev, struct lwis_io_ent
 				int access_size)
 {
 	struct lwis_i2c_device *i2c_dev;
+
 	i2c_dev = container_of(lwis_dev, struct lwis_i2c_device, base_dev);
 
 	/* Running in interrupt context is not supported as i2c driver might sleep */
-	if (in_interrupt()) {
+	if (in_interrupt())
 		return -EAGAIN;
-	}
+
 	lwis_save_register_io_info(lwis_dev, entry, access_size);
 
 	return lwis_i2c_io_entry_rw(i2c_dev, entry);
 }
 
-static int lwis_i2c_addr_matcher(struct device *dev, void *data)
+static int i2c_addr_matcher(struct device *dev, void *data)
 {
 	struct i2c_client *client = i2c_verify_client(dev);
 	int address = *(int *)data;
 
 	/* Return 0 if error, or address doesn't match */
-	if (IS_ERR_OR_NULL(client) || (client->addr != address)) {
+	if (IS_ERR_OR_NULL(client) || (client->addr != address))
 		return 0;
-	}
 
 	/* Return 1 when address is found */
 	return 1;
 }
 
-static int lwis_i2c_device_setup(struct lwis_i2c_device *i2c_dev)
+static int i2c_device_setup(struct lwis_i2c_device *i2c_dev)
 {
 	int ret;
 	struct i2c_board_info info = {};
@@ -181,7 +176,7 @@ static int lwis_i2c_device_setup(struct lwis_i2c_device *i2c_dev)
 	}
 #else
 	/* Non-device-tree init: Save for future implementation */
-	return -ENOSYS;
+	return -EINVAL;
 #endif
 
 	/* Initialize device i2c lock */
@@ -191,12 +186,14 @@ static int lwis_i2c_device_setup(struct lwis_i2c_device *i2c_dev)
 	i2c_dev->client = i2c_new_client_device(i2c_dev->adapter, &info);
 
 	/* New device creation failed, possibly because client with the same
-	   address is defined, try to find the client instance in the adapter
-	   and use it here */
+	 * address is defined, try to find the client instance in the adapter
+	 * and use it here
+	 */
 	if (IS_ERR_OR_NULL(i2c_dev->client)) {
 		struct device *idev;
+
 		idev = device_find_child(&i2c_dev->adapter->dev, &i2c_dev->address,
-					 lwis_i2c_addr_matcher);
+					 i2c_addr_matcher);
 		i2c_dev->client = i2c_verify_client(idev);
 	}
 
@@ -209,8 +206,10 @@ static int lwis_i2c_device_setup(struct lwis_i2c_device *i2c_dev)
 	dev = &i2c_dev->client->dev;
 
 	/* Parent of the client is the i2c block, which is where the i2c state
-	   pinctrl's are defined */
-	/* TODO: Need to figure out why this is parent's parent */
+	 * pinctrl's are defined
+	 *
+	 * TODO: Need to figure out why this is parent's parent
+	 */
 	pinctrl = devm_pinctrl_get(dev->parent->parent);
 	if (IS_ERR_OR_NULL(pinctrl)) {
 		dev_err(i2c_dev->base_dev.dev, "Cannot instantiate pinctrl instance (%lu)\n",
@@ -246,47 +245,44 @@ static int lwis_i2c_device_probe(struct platform_device *plat_dev)
 {
 	int ret = 0;
 	struct lwis_i2c_device *i2c_dev;
+	struct device *dev = &plat_dev->dev;
 
 	/* Allocate I2C device specific data construct */
-	i2c_dev = kzalloc(sizeof(struct lwis_i2c_device), GFP_KERNEL);
-	if (!i2c_dev) {
-		pr_err("Failed to allocate i2c device structure\n");
+	i2c_dev = devm_kzalloc(dev, sizeof(struct lwis_i2c_device), GFP_KERNEL);
+	if (!i2c_dev)
 		return -ENOMEM;
-	}
 
 	i2c_dev->base_dev.type = DEVICE_TYPE_I2C;
 	i2c_dev->base_dev.vops = i2c_vops;
-	i2c_dev->base_dev.subscribe_ops = i2c_subscribe_ops;
+	i2c_dev->base_dev.plat_dev = plat_dev;
+	i2c_dev->base_dev.k_dev = &plat_dev->dev;
 
 	/* Call the base device probe function */
-	ret = lwis_base_probe(&i2c_dev->base_dev, plat_dev);
+	ret = lwis_base_probe(&i2c_dev->base_dev);
 	if (ret) {
-		pr_err("Error in lwis base probe\n");
-		goto error_probe;
+		dev_err(dev, "Error in lwis base probe\n");
+		return ret;
 	}
+	platform_set_drvdata(plat_dev, &i2c_dev->base_dev);
 
 	/* Call I2C device specific setup function */
-	ret = lwis_i2c_device_setup(i2c_dev);
+	ret = i2c_device_setup(i2c_dev);
 	if (ret) {
 		dev_err(i2c_dev->base_dev.dev, "Error in i2c device initialization\n");
 		lwis_base_unprobe(&i2c_dev->base_dev);
-		goto error_probe;
+		return ret;
 	}
 
-	ret = lwis_i2c_bus_manager_create(i2c_dev);
+	ret = lwis_bus_manager_create(&i2c_dev->base_dev);
 	if (ret) {
 		dev_err(i2c_dev->base_dev.dev, "Error in i2c bus manager creation\n");
 		lwis_base_unprobe(&i2c_dev->base_dev);
-		goto error_probe;
+		return ret;
 	}
 
 	dev_info(i2c_dev->base_dev.dev, "I2C Device Probe: Success\n");
 
 	return 0;
-
-error_probe:
-	kfree(i2c_dev);
-	return ret;
 }
 
 #ifdef CONFIG_PM
@@ -324,8 +320,7 @@ MODULE_DEVICE_TABLE(of, lwis_id_match);
 
 static struct platform_driver lwis_driver = {
 	.probe = lwis_i2c_device_probe,
-	.driver =
-		{
+	.driver = {
 			.name = LWIS_DRIVER_NAME,
 			.owner = THIS_MODULE,
 			.of_match_table = lwis_id_match,
@@ -361,24 +356,18 @@ int __init lwis_i2c_device_init(void)
 
 	pr_info("I2C device initialization\n");
 
-	lwis_i2c_bus_manager_list_initialize();
-
 	ret = platform_driver_register(&lwis_driver);
-	if (ret) {
+	if (ret)
 		pr_err("platform_driver_register failed: %d\n", ret);
-	}
 
-	for (i = 0; i < MAX_I2C_LOCK_NUM; ++i) {
+	for (i = 0; i < MAX_I2C_LOCK_NUM; ++i)
 		mutex_init(&group_i2c_lock[i]);
-	}
 
 	return ret;
 }
 
 int lwis_i2c_device_deinit(void)
 {
-	lwis_i2c_bus_manager_list_deinitialize();
-
 	platform_driver_unregister(&lwis_driver);
 	return 0;
 }

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-only
 /*
  * Google LWIS Device Tree Parser
  *
@@ -25,10 +26,7 @@
 #include "lwis_i2c.h"
 #include "lwis_ioreg.h"
 #include "lwis_regulator.h"
-#include "lwis_i2c_bus_manager.h"
-
-#define SHARED_STRING "shared-"
-#define PULSE_STRING "pulse-"
+#include "lwis_bus_manager.h"
 
 /* Uncomment this to help debug device tree parsing. */
 // #define LWIS_DT_DEBUG
@@ -41,14 +39,13 @@ static int parse_gpios(struct lwis_device *lwis_dev, char *name, bool *is_presen
 
 	*is_present = false;
 
-	dev = &lwis_dev->plat_dev->dev;
+	dev = lwis_dev->k_dev;
 
 	count = gpiod_count(dev, name);
 
 	/* No GPIO pins found, just return */
-	if (count <= 0) {
+	if (count <= 0)
 		return 0;
-	}
 
 	list = lwis_gpio_list_get(dev, name);
 	if (IS_ERR_OR_NULL(list)) {
@@ -57,7 +54,8 @@ static int parse_gpios(struct lwis_device *lwis_dev, char *name, bool *is_presen
 	}
 
 	/* The GPIO pins are valid, release the list as we do not need to hold
-	   on to the pins yet */
+	 * on to the pins yet
+	 */
 	lwis_gpio_list_put(list, dev);
 	*is_present = true;
 	return 0;
@@ -86,12 +84,11 @@ static int parse_irq_gpios(struct lwis_device *lwis_dev)
 	lwis_dev->irq_gpios_info.is_shared = false;
 	lwis_dev->irq_gpios_info.is_pulse = false;
 
-	dev = &lwis_dev->plat_dev->dev;
+	dev = lwis_dev->k_dev;
 	count = gpiod_count(dev, "irq");
 	/* No irq GPIO pins found, just return */
-	if (count <= 0) {
+	if (count <= 0)
 		return 0;
-	}
 
 	dev_node = dev->of_node;
 	name_count = of_property_count_strings(dev_node, "irq-gpios-names");
@@ -120,7 +117,6 @@ static int parse_irq_gpios(struct lwis_device *lwis_dev)
 
 	irq_gpios_names = kmalloc(LWIS_MAX_NAME_STRING_LEN * name_count, GFP_KERNEL);
 	if (IS_ERR_OR_NULL(irq_gpios_names)) {
-		pr_err("Allocating event list failed\n");
 		ret = -ENOMEM;
 		goto error_parse_irq_gpios;
 	}
@@ -137,7 +133,6 @@ static int parse_irq_gpios(struct lwis_device *lwis_dev)
 
 	irq_gpios_types = kmalloc(sizeof(u32) * type_count, GFP_KERNEL);
 	if (IS_ERR_OR_NULL(irq_gpios_types)) {
-		pr_err("Allocating irq_gpios_types list failed\n");
 		ret = -ENOMEM;
 		goto error_parse_irq_gpios;
 	}
@@ -153,7 +148,6 @@ static int parse_irq_gpios(struct lwis_device *lwis_dev)
 
 	irq_gpios_events = kmalloc(sizeof(u64) * event_count, GFP_KERNEL);
 	if (IS_ERR_OR_NULL(irq_gpios_events)) {
-		pr_err("Allocating event list failed\n");
 		ret = -ENOMEM;
 		goto error_parse_irq_gpios;
 	}
@@ -178,6 +172,7 @@ static int parse_irq_gpios(struct lwis_device *lwis_dev)
 	for (i = 0; i < gpios->ndescs; ++i) {
 		char *name;
 		int irq;
+
 		irq = gpiod_to_irq(gpios->desc[i]);
 		if (irq < 0) {
 			pr_err("gpio to irq failed (%d)\n", irq);
@@ -214,7 +209,7 @@ static int parse_settle_time(struct lwis_device *lwis_dev)
 	struct device_node *dev_node;
 	struct device *dev;
 
-	dev = &lwis_dev->plat_dev->dev;
+	dev = lwis_dev->k_dev;
 	dev_node = dev->of_node;
 	lwis_dev->enable_gpios_settle_time = 0;
 
@@ -235,7 +230,7 @@ static int parse_regulators(struct lwis_device *lwis_dev)
 	int voltage;
 	int voltage_count;
 
-	dev = &lwis_dev->plat_dev->dev;
+	dev = lwis_dev->k_dev;
 	dev_node = dev->of_node;
 
 	count = of_property_count_elems_of_size(dev_node, "regulators", sizeof(u32));
@@ -247,8 +242,9 @@ static int parse_regulators(struct lwis_device *lwis_dev)
 	}
 
 	/* Voltage count is allowed to be less than regulator count,
-	   regulator_set_voltage will not be called for the ones with
-	   unspecified voltage */
+	 * regulator_set_voltage will not be called for the ones with
+	 * unspecified voltage
+	 */
 	voltage_count =
 		of_property_count_elems_of_size(dev_node, "regulator-voltages", sizeof(u32));
 
@@ -265,9 +261,9 @@ static int parse_regulators(struct lwis_device *lwis_dev)
 		dev_node_reg = of_parse_phandle(dev_node, "regulators", i);
 		of_property_read_string(dev_node_reg, "regulator-name", &name);
 		voltage = 0;
-		if (i < voltage_count) {
+		if (i < voltage_count)
 			of_property_read_u32_index(dev_node, "regulator-voltages", i, &voltage);
-		}
+
 		ret = lwis_regulator_get(lwis_dev->regulators, (char *)name, voltage, dev);
 		if (ret < 0) {
 			pr_err("Cannot find regulator: %s\n", name);
@@ -301,7 +297,7 @@ static int parse_clocks(struct lwis_device *lwis_dev)
 	u32 rate;
 	int clock_family;
 
-	dev = &lwis_dev->plat_dev->dev;
+	dev = lwis_dev->k_dev;
 	dev_node = dev->of_node;
 
 	count = of_property_count_strings(dev_node, "clock-names");
@@ -352,9 +348,8 @@ static int parse_clocks(struct lwis_device *lwis_dev)
 	}
 
 	/* Initialize all the BTS indexes */
-	for (i = 0; i < MAX_BTS_BLOCK_NUM; ++i) {
+	for (i = 0; i < MAX_BTS_BLOCK_NUM; ++i)
 		lwis_dev->bts_indexes[i] = BTS_UNSUPPORTED;
-	}
 
 #ifdef LWIS_DT_DEBUG
 	pr_info("%s: clock family %d", lwis_dev->name, lwis_dev->clock_family);
@@ -365,9 +360,8 @@ static int parse_clocks(struct lwis_device *lwis_dev)
 
 error_parse_clk:
 	/* Put back the clock instances for the ones that were alloc'ed */
-	for (i = 0; i < count; ++i) {
+	for (i = 0; i < count; ++i)
 		lwis_clock_put_by_idx(lwis_dev->clocks, i, dev);
-	}
 	lwis_clock_list_free(lwis_dev->clocks);
 	lwis_dev->clocks = NULL;
 	return ret;
@@ -381,7 +375,7 @@ static int parse_pinctrls(struct lwis_device *lwis_dev, char *expected_state)
 	struct pinctrl *pc;
 	struct pinctrl_state *pinctrl_state;
 
-	dev = &lwis_dev->plat_dev->dev;
+	dev = lwis_dev->k_dev;
 	dev_node = dev->of_node;
 
 	lwis_dev->mclk_present = false;
@@ -410,7 +404,8 @@ static int parse_pinctrls(struct lwis_device *lwis_dev, char *expected_state)
 	of_property_read_u32(dev_node, "shared-pinctrl", &lwis_dev->shared_pinctrl);
 
 	/* The pinctrl is valid, release it as we do not need to hold on to
-	   the pins yet */
+	 * the pins yet
+	 */
 	devm_pinctrl_put(pc);
 
 	lwis_dev->mclk_present = true;
@@ -430,10 +425,8 @@ static int parse_irq_reg_bits(struct device_node *info, int *bits_num_result, u3
 	}
 
 	int_reg_bits = kmalloc(sizeof(u32) * int_reg_bits_num, GFP_KERNEL);
-	if (IS_ERR_OR_NULL(int_reg_bits)) {
-		pr_err("Failed to allocate memory for irq regiater bits\n");
+	if (IS_ERR_OR_NULL(int_reg_bits))
 		return -ENOMEM;
-	}
 
 	*bits_num_result = int_reg_bits_num;
 	int_reg_bits_num = of_property_read_variable_u32_array(info, "int-reg-bits", int_reg_bits,
@@ -441,7 +434,7 @@ static int parse_irq_reg_bits(struct device_node *info, int *bits_num_result, u3
 	if (*bits_num_result != int_reg_bits_num) {
 		pr_err("Error getting int-reg-bits: %d\n", int_reg_bits_num);
 		kfree(int_reg_bits);
-		return int_reg_bits_num;
+		return -EINVAL;
 	}
 	*reg_bits_result = int_reg_bits;
 
@@ -458,15 +451,12 @@ static int parse_critical_irq_events(struct device_node *event_info, u64 **irq_e
 	critical_irq_events_num =
 		of_property_count_elems_of_size(event_info, "critical-irq-events", 8);
 	/* No Critical IRQ event found, just return */
-	if (critical_irq_events_num <= 0) {
+	if (critical_irq_events_num <= 0)
 		return 0;
-	}
 
 	*irq_events = kmalloc(sizeof(u64) * critical_irq_events_num, GFP_KERNEL);
-	if (*irq_events == NULL) {
-		pr_err("Failed to allocate memory for critical events\n");
+	if (*irq_events == NULL)
 		return 0;
-	}
 
 	for (i = 0; i < critical_irq_events_num; ++i) {
 		ret = of_property_read_u64_index(event_info, "critical-irq-events", i,
@@ -495,9 +485,8 @@ static int parse_interrupts_event_info(struct lwis_interrupt_list *list, int ind
 	int ret = 0;
 
 	ret = parse_irq_reg_bits(event_info, &int_reg_bits_num, &int_reg_bits);
-	if (ret) {
+	if (ret)
 		return ret;
-	}
 
 	irq_events_num = of_property_count_elems_of_size(event_info, "irq-events", 8);
 	if (irq_events_num != int_reg_bits_num || irq_events_num <= 0) {
@@ -542,9 +531,8 @@ static int find_irq_index_by_name(struct lwis_interrupt_list *list, const char *
 	int i;
 
 	for (i = 0; i < list->count; ++i) {
-		if (strncmp(irq_name, list->irq[i].name, IRQ_FULL_NAME_LENGTH - 1) == 0) {
+		if (strncmp(irq_name, list->irq[i].name, IRQ_FULL_NAME_LENGTH - 1) == 0)
 			return i;
-		}
 	}
 	return -ENOENT;
 }
@@ -559,9 +547,8 @@ static int parse_interrupt_leaf_nodes(struct lwis_interrupt_list *list, int inde
 	int i = 0, ret = 0;
 
 	ret = parse_irq_reg_bits(leaf_info, &int_reg_bits_num, &int_reg_bits);
-	if (ret) {
+	if (ret)
 		return ret;
-	}
 
 	irq_leaves_num = of_property_count_elems_of_size(leaf_info, "irq-leaf-nodes", 4);
 	if (irq_leaves_num != int_reg_bits_num || irq_leaves_num <= 0) {
@@ -572,7 +559,7 @@ static int parse_interrupt_leaf_nodes(struct lwis_interrupt_list *list, int inde
 	}
 
 	i = 0;
-	of_for_each_phandle (&it, ret, leaf_info, "irq-leaf-nodes", 0, 0) {
+	of_for_each_phandle(&it, ret, leaf_info, "irq-leaf-nodes", 0, 0) {
 		struct device_node *irq_group_node = of_node_get(it.node);
 		int leaf_interrupts_count;
 		const char *leaf_interrupt_name;
@@ -637,15 +624,17 @@ static int parse_interrupts(struct lwis_device *lwis_dev)
 	struct platform_device *plat_dev;
 	struct of_phandle_iterator it;
 
+	if (lwis_dev->type == DEVICE_TYPE_SPI)
+		return 0;
+
 	plat_dev = lwis_dev->plat_dev;
-	dev_node = plat_dev->dev.of_node;
+	dev_node = lwis_dev->k_dev->of_node;
 
 	/* Test device type DEVICE_TYPE_TEST used for test, platform independent. */
-	if (lwis_dev->type == DEVICE_TYPE_TEST) {
+	if (lwis_dev->type == DEVICE_TYPE_TEST)
 		count = TEST_DEVICE_IRQ_CNT;
-	} else {
+	else
 		count = platform_irq_count(plat_dev);
-	}
 
 	/* No interrupts found, just return */
 	if (count <= 0) {
@@ -655,11 +644,11 @@ static int parse_interrupts(struct lwis_device *lwis_dev)
 
 	lwis_dev->irqs = lwis_interrupt_list_alloc(lwis_dev, count);
 	if (IS_ERR_OR_NULL(lwis_dev->irqs)) {
-		if (lwis_dev->type == DEVICE_TYPE_TEST) {
+		if (lwis_dev->type == DEVICE_TYPE_TEST)
 			pr_err("Failed to allocate injection\n");
-		} else {
+		else
 			pr_err("Failed to allocate IRQ list\n");
-		}
+
 		ret = PTR_ERR(lwis_dev->irqs);
 		lwis_dev->irqs = NULL;
 		return ret;
@@ -683,11 +672,11 @@ static int parse_interrupts(struct lwis_device *lwis_dev)
 	}
 	/* Get event infos */
 	i = 0;
-	of_for_each_phandle (&it, ret, dev_node, "interrupt-event-infos", 0, 0) {
+	of_for_each_phandle(&it, ret, dev_node, "interrupt-event-infos", 0, 0) {
 		const char *irq_reg_space = NULL, *irq_type_str = NULL;
 		bool irq_mask_reg_toggle;
 		u64 irq_src_reg;
-		u64 irq_reset_reg;
+		u64 irq_reset_reg = 0;
 		u64 irq_mask_reg;
 		u64 irq_overflow_reg = 0;
 		int irq_reg_bid = -1;
@@ -712,11 +701,12 @@ static int parse_interrupts(struct lwis_device *lwis_dev)
 		}
 		for (j = 0; j < irq_reg_bid_count; j++) {
 			const char *bid_name;
+
 			ret = of_property_read_string_index(dev_node, "reg-names", j, &bid_name);
 
-			if (ret) {
+			if (ret)
 				break;
-			}
+
 			if (!strcmp(bid_name, irq_reg_space)) {
 				irq_reg_bid = j;
 				break;
@@ -733,11 +723,7 @@ static int parse_interrupts(struct lwis_device *lwis_dev)
 			goto error_event_infos;
 		}
 
-		ret = of_property_read_u64(event_info, "irq-reset-reg", &irq_reset_reg);
-		if (ret) {
-			pr_err("Error getting irq-reset-reg from dt: %d\n", ret);
-			goto error_event_infos;
-		}
+		of_property_read_u64(event_info, "irq-reset-reg", &irq_reset_reg);
 
 		ret = of_property_read_u64(event_info, "irq-mask-reg", &irq_mask_reg);
 		if (ret) {
@@ -819,9 +805,7 @@ static int parse_interrupts(struct lwis_device *lwis_dev)
 
 	return 0;
 error_event_infos:
-	for (i = 0; i < count; ++i) {
-		// TODO(yromanenko): lwis_interrupt_put
-	}
+	/* TODO(yromanenko): lwis_interrupt_put */
 error_get_irq:
 	lwis_interrupt_list_free(lwis_dev->irqs);
 	lwis_dev->irqs = NULL;
@@ -837,7 +821,7 @@ static int parse_phys(struct lwis_device *lwis_dev)
 	int count;
 	const char *name;
 
-	dev = &(lwis_dev->plat_dev->dev);
+	dev = lwis_dev->k_dev;
 	dev_node = dev->of_node;
 
 	count = of_count_phandle_with_args(dev_node, "phys", "#phy-cells");
@@ -872,9 +856,8 @@ static int parse_phys(struct lwis_device *lwis_dev)
 	return 0;
 
 error_parse_phy:
-	for (i = 0; i < count; ++i) {
+	for (i = 0; i < count; ++i)
 		lwis_phy_put_by_idx(lwis_dev->phys, i, dev);
-	}
 	lwis_phy_list_free(lwis_dev->phys);
 	lwis_dev->phys = NULL;
 	return ret;
@@ -888,15 +871,15 @@ static void parse_bitwidths(struct lwis_device *lwis_dev)
 	u32 addr_bitwidth = 32;
 	u32 value_bitwidth = 32;
 
-	dev = &(lwis_dev->plat_dev->dev);
+	dev = lwis_dev->k_dev;
 	dev_node = dev->of_node;
 
-	of_property_read_u32(dev_node, "reg-addr-bitwidth", &addr_bitwidth);
+	ret = of_property_read_u32(dev_node, "reg-addr-bitwidth", &addr_bitwidth);
 #ifdef LWIS_DT_DEBUG
 	pr_info("Addr bitwidth set to: %d\n", addr_bitwidth);
 #endif
 
-	of_property_read_u32(dev_node, "reg-value-bitwidth", &value_bitwidth);
+	ret = of_property_read_u32(dev_node, "reg-value-bitwidth", &value_bitwidth);
 #ifdef LWIS_DT_DEBUG
 	pr_info("Value bitwidth set to: %d\n", value_bitwidth);
 #endif
@@ -922,19 +905,17 @@ static int parse_power_seqs(struct lwis_device *lwis_dev, const char *seq_name,
 	const char *name;
 	const char *type;
 	int delay_us;
-	int type_gpio_count = 0;
 	int type_regulator_count = 0;
 
 	scnprintf(str_seq_name, LWIS_MAX_NAME_STRING_LEN, "%s-seqs", seq_name);
 	scnprintf(str_seq_type, LWIS_MAX_NAME_STRING_LEN, "%s-seq-types", seq_name);
 	scnprintf(str_seq_delay, LWIS_MAX_NAME_STRING_LEN, "%s-seq-delays-us", seq_name);
 
-	dev = &lwis_dev->plat_dev->dev;
+	dev = lwis_dev->k_dev;
 	dev_node = dev->of_node;
 	*list = NULL;
-	if (dev_node_seq) {
+	if (dev_node_seq)
 		dev_node = dev_node_seq;
-	}
 
 	power_seq_count = of_property_count_strings(dev_node, str_seq_name);
 	power_seq_type_count = of_property_count_strings(dev_node, str_seq_type);
@@ -942,9 +923,9 @@ static int parse_power_seqs(struct lwis_device *lwis_dev, const char *seq_name,
 		of_property_count_elems_of_size(dev_node, str_seq_delay, sizeof(u32));
 
 	/* No power-seqs found, just return */
-	if (power_seq_count <= 0) {
+	if (power_seq_count <= 0)
 		return 0;
-	}
+
 	if (power_seq_count != power_seq_type_count || power_seq_count != power_seq_delay_count) {
 		pr_err("Count of power sequence %s is not match\n", str_seq_name);
 		return -EINVAL;
@@ -973,7 +954,9 @@ static int parse_power_seqs(struct lwis_device *lwis_dev, const char *seq_name,
 		}
 		strscpy((*list)->seq_info[i].type, type, LWIS_MAX_NAME_STRING_LEN);
 		if (strcmp(type, "gpio") == 0) {
-			type_gpio_count++;
+			ret = lwis_gpios_list_add_info_by_name(dev, &lwis_dev->gpios_list, name);
+			if (ret)
+				goto error_parse_power_seqs;
 		} else if (strcmp(type, "regulator") == 0) {
 			type_regulator_count++;
 		}
@@ -990,61 +973,6 @@ static int parse_power_seqs(struct lwis_device *lwis_dev, const char *seq_name,
 	lwis_dev_power_seq_list_print(*list);
 #endif
 
-	if (type_gpio_count > 0 && lwis_dev->gpios_list == NULL) {
-		lwis_dev->gpios_list = lwis_gpios_list_alloc(type_gpio_count);
-		if (IS_ERR_OR_NULL(lwis_dev->gpios_list)) {
-			pr_err("Failed to allocate gpios list\n");
-			ret = PTR_ERR(lwis_dev->gpios_list);
-			goto error_parse_power_seqs;
-		}
-
-		type_gpio_count = 0;
-		for (i = 0; i < power_seq_count; ++i) {
-			struct lwis_gpios_info *gpios_info;
-			char *seq_item_name;
-			struct device *dev;
-			struct gpio_descs *descs;
-
-			if (strcmp((*list)->seq_info[i].type, "gpio") != 0) {
-				continue;
-			}
-
-			gpios_info = &lwis_dev->gpios_list->gpios_info[type_gpio_count];
-			seq_item_name = (*list)->seq_info[i].name;
-			dev = &lwis_dev->plat_dev->dev;
-			descs = lwis_gpio_list_get(dev, seq_item_name);
-			if (IS_ERR_OR_NULL(descs)) {
-				pr_err("Error parsing GPIO list %s (%ld)\n", seq_item_name,
-				       PTR_ERR(descs));
-				ret = PTR_ERR(descs);
-				goto error_parse_power_seqs;
-			}
-			gpios_info->id = desc_to_gpio(descs->desc[0]);
-			gpios_info->hold_dev = dev;
-			/*
-			 * The GPIO pins are valid, release the list as we do not need to hold
-			 * on to the pins yet
-			 */
-			lwis_gpio_list_put(descs, dev);
-
-			gpios_info->gpios = NULL;
-			gpios_info->irq_list = NULL;
-			strscpy(gpios_info->name, seq_item_name, LWIS_MAX_NAME_STRING_LEN);
-
-			if (strncmp(SHARED_STRING, seq_item_name, strlen(SHARED_STRING)) == 0) {
-				gpios_info->is_shared = true;
-			} else {
-				gpios_info->is_shared = false;
-			}
-			if (strncmp(PULSE_STRING, seq_item_name, strlen(PULSE_STRING)) == 0) {
-				gpios_info->is_pulse = true;
-			} else {
-				gpios_info->is_pulse = false;
-			}
-			type_gpio_count++;
-		}
-	}
-
 	if (type_regulator_count > 0 && lwis_dev->regulators == NULL) {
 		lwis_dev->regulators = lwis_regulator_list_alloc(type_regulator_count);
 		if (IS_ERR_OR_NULL(lwis_dev->regulators)) {
@@ -1057,11 +985,10 @@ static int parse_power_seqs(struct lwis_device *lwis_dev, const char *seq_name,
 			struct device *dev;
 			char *seq_item_name;
 
-			if (strcmp((*list)->seq_info[i].type, "regulator") != 0) {
+			if (strcmp((*list)->seq_info[i].type, "regulator") != 0)
 				continue;
-			}
 
-			dev = &lwis_dev->plat_dev->dev;
+			dev = lwis_dev->k_dev;
 			seq_item_name = (*list)->seq_info[i].name;
 
 			ret = lwis_regulator_get(lwis_dev->regulators, seq_item_name,
@@ -1081,8 +1008,7 @@ error_parse_power_seqs:
 		lwis_regulator_list_free(lwis_dev->regulators);
 		lwis_dev->regulators = NULL;
 	}
-	lwis_gpios_list_free(lwis_dev->gpios_list);
-	lwis_dev->gpios_list = NULL;
+	lwis_gpios_list_free(&lwis_dev->gpios_list);
 	lwis_dev_power_seq_list_free(*list);
 	*list = NULL;
 	return ret;
@@ -1096,7 +1022,7 @@ static int parse_unified_power_seqs(struct lwis_device *lwis_dev)
 	int count;
 	int ret = 0;
 
-	dev = &lwis_dev->plat_dev->dev;
+	dev = lwis_dev->k_dev;
 	dev_node = dev->of_node;
 
 	count = of_property_count_elems_of_size(dev_node, "power-seq", sizeof(u32));
@@ -1135,7 +1061,7 @@ static int parse_pm_hibernation(struct lwis_device *lwis_dev)
 {
 	struct device_node *dev_node;
 
-	dev_node = lwis_dev->plat_dev->dev.of_node;
+	dev_node = lwis_dev->k_dev->of_node;
 	lwis_dev->pm_hibernation = 1;
 
 	of_property_read_u32(dev_node, "pm-hibernation", &lwis_dev->pm_hibernation);
@@ -1147,9 +1073,20 @@ static int parse_access_mode(struct lwis_device *lwis_dev)
 {
 	struct device_node *dev_node;
 
-	dev_node = lwis_dev->plat_dev->dev.of_node;
+	dev_node = lwis_dev->k_dev->of_node;
 
 	lwis_dev->is_read_only = of_property_read_bool(dev_node, "lwis,read-only");
+
+	return 0;
+}
+
+static int parse_power_up_mode(struct lwis_device *lwis_dev)
+{
+	struct device_node *dev_node;
+
+	dev_node = lwis_dev->k_dev->of_node;
+
+	lwis_dev->power_up_to_suspend = of_property_read_bool(dev_node, "lwis,power-up-to-suspend");
 
 	return 0;
 }
@@ -1158,7 +1095,7 @@ static int parse_thread_priority(struct lwis_device *lwis_dev)
 {
 	struct device_node *dev_node;
 
-	dev_node = lwis_dev->plat_dev->dev.of_node;
+	dev_node = lwis_dev->k_dev->of_node;
 	lwis_dev->transaction_thread_priority = 0;
 
 	of_property_read_u32(dev_node, "transaction-thread-priority",
@@ -1172,21 +1109,21 @@ static int parse_i2c_device_priority(struct lwis_i2c_device *i2c_dev)
 	struct device_node *dev_node;
 	int ret = 0;
 
-	dev_node = i2c_dev->base_dev.plat_dev->dev.of_node;
+	dev_node = i2c_dev->base_dev.k_dev->of_node;
 	/* Set i2c device_priority value to default */
-	i2c_dev->device_priority = I2C_DEVICE_HIGH_PRIORITY;
+	i2c_dev->device_priority = DEVICE_HIGH_PRIORITY;
 
 	ret = of_property_read_u32(dev_node, "i2c-device-priority", &i2c_dev->device_priority);
 	/* If no property in device tree, just return to use default */
-	if (ret == -EINVAL) {
+	if (ret == -EINVAL)
 		return 0;
-	}
+
 	if (ret) {
 		dev_err(i2c_dev->base_dev.dev, "invalid i2c-device-priority value\n");
 		return ret;
 	}
-	if ((i2c_dev->device_priority < I2C_DEVICE_HIGH_PRIORITY) ||
-	    (i2c_dev->device_priority > I2C_DEVICE_LOW_PRIORITY)) {
+	if ((i2c_dev->device_priority < DEVICE_HIGH_PRIORITY) ||
+	    (i2c_dev->device_priority > DEVICE_LOW_PRIORITY)) {
 		dev_err(i2c_dev->base_dev.dev, "invalid i2c-device-priority value %d\n",
 			i2c_dev->device_priority);
 		return -EINVAL;
@@ -1200,15 +1137,15 @@ static int parse_i2c_lock_group_id(struct lwis_i2c_device *i2c_dev)
 	struct device_node *dev_node;
 	int ret;
 
-	dev_node = i2c_dev->base_dev.plat_dev->dev.of_node;
+	dev_node = i2c_dev->base_dev.k_dev->of_node;
 	/* Set i2c_lock_group_id value to default */
 	i2c_dev->i2c_lock_group_id = MAX_I2C_LOCK_NUM - 1;
 
 	ret = of_property_read_u32(dev_node, "i2c-lock-group-id", &i2c_dev->i2c_lock_group_id);
 	/* If no property in device tree, just return to use default */
-	if (ret == -EINVAL) {
+	if (ret == -EINVAL)
 		return 0;
-	}
+
 	if (ret) {
 		pr_err("i2c-lock-group-id value wrong\n");
 		return ret;
@@ -1226,10 +1163,44 @@ static void parse_transaction_process_limit(struct lwis_device *lwis_dev)
 	struct device_node *dev_node;
 
 	lwis_dev->transaction_process_limit = 0;
-	dev_node = lwis_dev->plat_dev->dev.of_node;
+	dev_node = lwis_dev->k_dev->of_node;
 
 	of_property_read_u32(dev_node, "transaction-process-limit",
 			     &lwis_dev->transaction_process_limit);
+}
+
+static void parse_ioreg_device_group(struct lwis_ioreg_device *ioreg_dev)
+{
+	struct device_node *dev_node;
+
+	dev_node = ioreg_dev->base_dev.k_dev->of_node;
+	ioreg_dev->device_group = LWIS_DEFAULT_DEVICE_GROUP;
+
+	of_property_read_u32(dev_node, "device-group", &ioreg_dev->device_group);
+}
+
+static void parse_ioreg_device_priority(struct lwis_ioreg_device *ioreg_dev)
+{
+	struct device_node *dev_node;
+	int ret;
+
+	dev_node = ioreg_dev->base_dev.k_dev->of_node;
+
+	ret = of_property_read_u32(dev_node, "ioreg-device-priority", &ioreg_dev->device_priority);
+
+	if (ret) {
+		ioreg_dev->device_priority = DEVICE_HIGH_PRIORITY;
+		return;
+	}
+
+	/* Validate the device priority specified in the device tree */
+	if ((ioreg_dev->device_priority < DEVICE_HIGH_PRIORITY) ||
+	    (ioreg_dev->device_priority > DEVICE_LOW_PRIORITY)) {
+		dev_err(ioreg_dev->base_dev.dev, "Invalid ioreg-device-priority value %d\n",
+			ioreg_dev->device_priority);
+		ioreg_dev->device_priority = DEVICE_HIGH_PRIORITY;
+		return;
+	}
 }
 
 int lwis_base_parse_dt(struct lwis_device *lwis_dev)
@@ -1239,7 +1210,7 @@ int lwis_base_parse_dt(struct lwis_device *lwis_dev)
 	const char *name_str;
 	int ret = 0;
 
-	dev = &(lwis_dev->plat_dev->dev);
+	dev = lwis_dev->k_dev;
 	dev_node = dev->of_node;
 
 	if (!dev_node) {
@@ -1360,6 +1331,7 @@ int lwis_base_parse_dt(struct lwis_device *lwis_dev)
 	}
 
 	parse_access_mode(lwis_dev);
+	parse_power_up_mode(lwis_dev);
 	parse_thread_priority(lwis_dev);
 	parse_bitwidths(lwis_dev);
 	parse_transaction_process_limit(lwis_dev);
@@ -1380,7 +1352,7 @@ int lwis_i2c_device_parse_dt(struct lwis_i2c_device *i2c_dev)
 	struct device_node *dev_node_i2c;
 	int ret;
 
-	dev_node = i2c_dev->base_dev.plat_dev->dev.of_node;
+	dev_node = i2c_dev->base_dev.k_dev->of_node;
 
 	dev_node_i2c = of_parse_phandle(dev_node, "i2c-bus", 0);
 	if (!dev_node_i2c) {
@@ -1407,10 +1379,14 @@ int lwis_i2c_device_parse_dt(struct lwis_i2c_device *i2c_dev)
 	}
 
 	ret = parse_i2c_device_priority(i2c_dev);
-	if (ret) {
+	if (ret)
 		return ret;
-	}
 
+	return 0;
+}
+
+int lwis_spi_device_parse_dt(struct lwis_spi_device *spi_dev)
+{
 	return 0;
 }
 
@@ -1423,7 +1399,7 @@ int lwis_ioreg_device_parse_dt(struct lwis_ioreg_device *ioreg_dev)
 	int reg_tuple_size;
 	const char *name;
 
-	dev_node = ioreg_dev->base_dev.plat_dev->dev.of_node;
+	dev_node = ioreg_dev->base_dev.k_dev->of_node;
 	reg_tuple_size = of_n_addr_cells(dev_node) + of_n_size_cells(dev_node);
 
 	blocks = of_property_count_elems_of_size(dev_node, "reg", reg_tuple_size * sizeof(u32));
@@ -1447,12 +1423,14 @@ int lwis_ioreg_device_parse_dt(struct lwis_ioreg_device *ioreg_dev)
 		}
 	}
 
+	parse_ioreg_device_priority(ioreg_dev);
+	parse_ioreg_device_group(ioreg_dev);
+
 	return 0;
 
 error_ioreg:
-	for (i = 0; i < blocks; ++i) {
+	for (i = 0; i < blocks; ++i)
 		lwis_ioreg_put_by_idx(ioreg_dev, i);
-	}
 	lwis_ioreg_list_free(ioreg_dev);
 	return ret;
 }

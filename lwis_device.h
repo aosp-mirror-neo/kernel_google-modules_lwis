@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Google LWIS Base Device Driver
  *
@@ -39,6 +40,7 @@
 #define LWIS_SLC_DEVICE_COMPAT "google,lwis-slc-device"
 #define LWIS_DPM_DEVICE_COMPAT "google,lwis-dpm-device"
 #define LWIS_TEST_DEVICE_COMPAT "google,lwis-test-device"
+#define LWIS_SPI_DEVICE_COMPAT "google,lwis-spi-device"
 
 #define EVENT_HASH_BITS 8
 #define BUFFER_HASH_BITS 8
@@ -58,7 +60,8 @@
 enum lwis_client_flush_state { NOT_FLUSHING, FLUSHING };
 
 /* Forward declaration for lwis_device. This is needed for the declaration for
-   lwis_device_subclass_operations data struct. */
+ * lwis_device_subclass_operations data struct.
+ */
 struct lwis_device;
 
 /* Forward declaration of a platform specific struct used by platform funcs */
@@ -120,31 +123,12 @@ struct lwis_device_subclass_operations {
 	int (*event_flags_updated)(struct lwis_device *lwis_dev, int64_t event_id,
 				   uint64_t old_flags, uint64_t new_flags);
 	/* Called by lwis_device any time an event is emitted
-	 * Called with lwis_dev->lock locked and IRQs disabled */
+	 * Called with lwis_dev->lock locked and IRQs disabled
+	 */
 	int (*event_emitted)(struct lwis_device *lwis_dev, int64_t event_id, void **payload_ptrptr,
 			     size_t *payload_size_ptr);
 	/* Called by lwis_device when device closes */
 	int (*close)(struct lwis_device *lwis_dev);
-};
-
-/*
- * struct lwis_event_subscribe_operations
- * This struct contains the 'virtual' functions for lwis_device subclasses
- * Top device should be the only device to implement it.
- */
-struct lwis_event_subscribe_operations {
-	/* Subscribe an event for subscriber device */
-	int (*subscribe_event)(struct lwis_device *lwis_dev, int64_t trigger_event_id,
-			       int trigger_device_id, int subscriber_device_id);
-	/* Unsubscribe an event for subscriber device */
-	int (*unsubscribe_event)(struct lwis_device *lwis_dev, int64_t trigger_event_id,
-				 int subscriber_device_id);
-	/* Notify subscriber when an event is happening */
-	void (*notify_event_subscriber)(struct lwis_device *lwis_dev, int64_t trigger_event_id,
-					int64_t trigger_event_count,
-					int64_t trigger_event_timestamp);
-	/* Clean up event subscription hash table when unloading top device */
-	void (*release)(struct lwis_device *lwis_dev);
 };
 
 /*
@@ -211,6 +195,7 @@ struct lwis_device {
 	int32_t type;
 	char name[LWIS_MAX_NAME_STRING_LEN];
 	struct device *dev;
+	struct device *k_dev;
 	struct platform_device *plat_dev;
 	bool reset_gpios_present;
 	struct gpio_descs *reset_gpios;
@@ -249,7 +234,6 @@ struct lwis_device {
 	unsigned int native_value_bitwidth;
 	/* Point to lwis_top_dev */
 	struct lwis_device *top_dev;
-	struct lwis_event_subscribe_operations subscribe_ops;
 #ifdef CONFIG_DEBUG_FS
 	/* DebugFS directory and files */
 	struct dentry *dbg_dir;
@@ -286,9 +270,11 @@ struct lwis_device {
 	/* Resume sequence information */
 	struct lwis_device_power_sequence_list *resume_sequence;
 	/* GPIOs list */
-	struct lwis_gpios_list *gpios_list;
+	struct list_head gpios_list;
 	/* GPIO interrupts list */
 	struct lwis_gpios_info irq_gpios_info;
+	/* Is power up to suspend mode */
+	bool power_up_to_suspend;
 
 	/* Power management hibernation state of the device */
 	int pm_hibernation;
@@ -358,21 +344,19 @@ struct lwis_client {
 	struct list_head node;
 	/* Mark if the client called device enable */
 	bool is_enabled;
-	/* Work item to schedule I2C transfers */
-	struct kthread_work i2c_work;
+	/* Work item to schedule managed LWIS Bus transfers */
+	struct kthread_work io_bus_work;
 	/* Indicates if the client has been issued a flush worker call */
 	enum lwis_client_flush_state flush_state;
 	/* Lock to guard client's flush state changes */
 	spinlock_t flush_lock;
-	/* Lock to guard client's buffer changes */
-	spinlock_t buffer_lock;
 };
 
 /*
  *  lwis_base_probe: Common probe function that will be used for all types
  *  of devices.
  */
-int lwis_base_probe(struct lwis_device *lwis_dev, struct platform_device *plat_dev);
+int lwis_base_probe(struct lwis_device *lwis_dev);
 
 /*
  *  lwis_base_unprobe: Cleanup a device instance

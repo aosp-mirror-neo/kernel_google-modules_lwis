@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Google LWIS SLC Device Driver
  *
@@ -34,6 +35,7 @@ struct lwis_slc_device {
 	struct pt_handle *partition_handle;
 };
 
+int lwis_slc_device_init(void);
 int lwis_slc_device_deinit(void);
 
 int lwis_slc_buffer_alloc(struct lwis_device *lwis_dev, struct lwis_alloc_buffer_info *alloc_info);

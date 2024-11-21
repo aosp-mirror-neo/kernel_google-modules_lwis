@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * Google LWIS Declarations of Platform-specific Functions
  *
@@ -56,5 +57,12 @@ int lwis_platform_update_bts(struct lwis_device *lwis_dev, int block, unsigned i
  *  setting default irq affinity.
  */
 int lwis_plaform_set_default_irq_affinity(unsigned int irq);
+
+/*
+ *  lwis_platform_dpm_update_qos: handles platform-specific parts of
+ *  updating qos requirements either qos_family_name or clock_family is valid.
+ */
+int lwis_platform_dpm_update_qos(struct lwis_device *lwis_dev, struct lwis_device *target_dev,
+				 struct lwis_qos_setting_v3 *qos_setting);
 
 #endif /* LWIS_PLATFORM_H_ */
