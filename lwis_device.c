@@ -1642,7 +1642,7 @@ void lwis_base_unprobe(struct lwis_device *unprobe_lwis_dev)
 			list_del(&lwis_dev->dev_list);
 
 			if (timer_pending(&lwis_dev->heartbeat_timer))
-				del_timer(&lwis_dev->heartbeat_timer);
+				timer_delete(&lwis_dev->heartbeat_timer);
 		}
 	}
 	mutex_unlock(&core.lock);
