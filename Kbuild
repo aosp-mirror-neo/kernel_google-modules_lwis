@@ -56,4 +56,3 @@ endif
 
 obj-$(CONFIG_LWIS) += lwis.o
 
-ccflags-y += -I$(abspath $(KERNEL_SRC)/$(M)) -I$(abspath $(KBUILD_SRC)/drivers/soc/google)
