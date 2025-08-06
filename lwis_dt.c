@@ -3,10 +3,6 @@
  * Google LWIS Device Tree Parser
  *
  * Copyright (c) 2018 Google, LLC
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME "-dt: " fmt
@@ -264,8 +260,7 @@ static int parse_regulators(struct lwis_device *lwis_dev)
 		voltage = 0;
 		if (i < voltage_count)
 			of_property_read_u32_index(dev_node, "regulator-voltages", i, &voltage);
-
-		ret = lwis_regulator_get(lwis_dev->regulators, (char *)name, voltage, dev);
+		ret = lwis_regulator_get(lwis_dev->regulators, name, voltage, dev);
 		of_node_put(dev_node_reg);
 		if (ret < 0) {
 			pr_err("Cannot find regulator: %s\n", name);
@@ -562,7 +557,7 @@ static int parse_interrupt_leaf_nodes(struct lwis_interrupt_list *list, int inde
 
 	i = 0;
 	of_for_each_phandle(&it, ret, leaf_info, "irq-leaf-nodes", 0, 0) {
-		struct device_node *irq_group_node = it.node;
+		struct device_node *irq_group_node = of_node_get(it.node);
 		int leaf_interrupts_count;
 		const char *leaf_interrupt_name;
 		int32_t *leaf_indexes = NULL;
@@ -609,6 +604,7 @@ static int parse_interrupt_leaf_nodes(struct lwis_interrupt_list *list, int inde
 		i++;
 	}
 
+	kfree(int_reg_bits);
 	return 0;
 leaf_error:
 	of_node_put(it.node);

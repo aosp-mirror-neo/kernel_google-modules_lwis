@@ -18,6 +18,14 @@
 #include "lwis_debug.h"
 #include "lwis_platform.h"
 
+/*
+ * module_param macro defines the parameter name, type and permission bits
+ * in sysfs file system. 0644 represents that the owner can read and write the kernel
+ * parameter using command line while other users can read it.
+ */
+bool lwis_busan_debug;
+module_param(lwis_busan_debug, bool, 0644);
+
 /* Uncomment to let kernel panic when IOMMU hits a page fault. */
 /* #define ENABLE_PAGE_FAULT_PANIC */
 
@@ -75,7 +83,7 @@ static int lwis_iommu_fault_handler(struct iommu_domain *domain,
 			port_name, iommus_reg);
 		pr_err("\n");
 	}
-	pr_err("IOMMU Page Fault at Address: 0x%p Flag: 0x%08x. Check dmesg for sysmmu errors\n",
+	pr_err("IOMMU Page Fault at Address: 0x%px Flag: 0x%08x. Check dmesg for sysmmu errors\n",
 	       (void *)iova, flags);
 	pr_err("\n");
 	lwis_debug_print_transaction_info(lwis_dev);
@@ -236,8 +244,10 @@ int lwis_platform_update_qos(struct lwis_device *lwis_dev, int value, int32_t cl
 	else
 		exynos_pm_qos_update_request(qos_req, value);
 
-	dev_info(lwis_dev->dev, "Updating clock for clock_family %d, freq to %u\n", clock_family,
-		 value);
+	if (lwis_busan_debug) {
+		dev_info(lwis_dev->dev, "Updating clock for clock_family %d, freq to %u\n",
+			 clock_family, value);
+	}
 
 	return 0;
 }
@@ -387,7 +397,7 @@ int lwis_platform_update_bts(struct lwis_device *lwis_dev, int block, unsigned i
 	ret = bts_update_bw(bts_index, bts_request);
 	if (ret < 0) {
 		dev_err(lwis_dev->dev, "Failed to update bandwidth to bts, ret: %d\n", ret);
-	} else {
+	} else if (lwis_busan_debug) {
 		dev_info(
 			lwis_dev->dev,
 			"Updated bandwidth to bts for device %s block %s: peak: %u, read: %u, write: %u, rt: %u\n",
@@ -400,5 +410,5 @@ int lwis_plaform_set_default_irq_affinity(unsigned int irq)
 {
 	const int cpu = 0x2;
 
-	return irq_set_affinity_hint(irq, cpumask_of(cpu));
+	return irq_set_affinity_and_hint(irq, cpumask_of(cpu));
 }
