@@ -164,16 +164,17 @@ static unsigned int lwis_fence_poll_legacy(struct file *fp, poll_table *wait)
 int lwis_dma_fence_signal_with_status(struct dma_fence *fence, int errno)
 {
 	struct lwis_fence *lwis_fence = container_of(fence, struct lwis_fence, dma_fence);
-	int ret;
 
 	if (errno != 0)
 		dma_fence_set_error(fence, errno);
-	ret = dma_fence_signal(fence);
 
-	if (unlikely(ret == 0 && lwis_fence->legacy_lwis_fence))
+	if (dma_fence_check_and_signal(fence))
+		return -EINVAL;
+
+	if (unlikely(lwis_fence->legacy_lwis_fence))
 		wake_up_interruptible(&lwis_fence->status_wait_queue);
 
-	return ret;
+	return 0;
 }
 
 static const char *lwis_fence_get_driver_name(struct dma_fence *fence)
