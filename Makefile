@@ -10,9 +10,9 @@ KBUILD_CFLAGS += -Wall -Werror
 ifeq ($(CONFIG_GCOV_KERNEL),y)
     KBUILD_CFLAGS += $(call cc-option, -ftest-coverage)
     KBUILD_CFLAGS += $(call cc-option, -fprofile-arcs)
-    EXTRA_CFLAGS += -DGCOV_PROFILE=1
+    CFLAGS_MODULE += -DGCOV_PROFILE=1
 endif
 
 modules modules_install clean:
 	$(MAKE) -C $(KERNEL_SRC) M=$(M) W=1 \
-	$(KBUILD_OPTIONS) EXTRA_CFLAGS="$(EXTRA_CFLAGS)" KBUILD_EXTRA_SYMBOLS="$(EXTRA_SYMBOLS)" $(@)
+	$(KBUILD_OPTIONS) CFLAGS_MODULE="$(CFLAGS_MODULE)" KBUILD_EXTRA_SYMBOLS="$(EXTRA_SYMBOLS)" $(@)
